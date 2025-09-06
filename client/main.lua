@@ -3,9 +3,13 @@ local QBCore = exports['qb-core']:GetCoreObject()
 -- ================== helpers ==================
 local function notify(entry)
     if not entry or not entry.msg then return end
+    if not lib or type(lib.notify) ~= 'function' then
+        print(('[anti_waterevade] %s'):format(entry.msg))
+        return
+    end
     lib.notify({
         description = entry.msg,
-        type = (entry.type == 'error' and 'error') or (entry.type == 'success' and 'success') or 'inform',
+        type = entry.type or 'inform',
         duration = entry.time or 3000,
         position = 'top-right'
     })
@@ -76,7 +80,9 @@ local countdownThread = nil
 -- bezpečné zrušenie ox_lib progressu (ak existuje API)
 local function cancelProgressSafe()
     pcall(function()
-        if lib and lib.cancelProgress then lib.cancelProgress() end
+        if lib and type(lib.cancelProgress) == 'function' then
+            lib.cancelProgress()
+        end
     end)
 end
 
@@ -92,11 +98,19 @@ local function startFinalCountdown(seconds)
 
     countdownThread = CreateThread(function()
         local dur = (seconds or Config.FinalCountdownSeconds or 60) * 1000
-        local hasCircle = type(lib.progressCircle) == 'function'
-        local ok
+        local progress
 
-        if (Config.Progress.useCircle and hasCircle) then
-            ok = lib.progressCircle({
+        if lib then
+            if Config.Progress.useCircle and type(lib.progressCircle) == 'function' then
+                progress = lib.progressCircle
+            elseif type(lib.progressBar) == 'function' then
+                progress = lib.progressBar
+            end
+        end
+
+        local deadline = GetGameTimer() + dur
+        if progress then
+            progress({
                 duration     = dur,
                 label        = Config.Progress.label or 'Topíš sa…',
                 position     = Config.Progress.position or 'bottom',
@@ -104,15 +118,11 @@ local function startFinalCountdown(seconds)
                 canCancel    = Config.Progress.canCancel or false,
                 disable      = Config.Progress.disable or {},
             })
+            local remaining = deadline - GetGameTimer()
+            if remaining > 0 then Wait(remaining) end
         else
-            ok = lib.progressBar({
-                duration     = dur,
-                label        = Config.Progress.label or 'Topíš sa…',
-                position     = Config.Progress.position or 'bottom',
-                useWhileDead = false,
-                canCancel    = Config.Progress.canCancel or false,
-                disable      = Config.Progress.disable or {},
-            })
+            -- fallback wait if ox_lib progress is unavailable
+            Wait(dur)
         end
 
         -- po skončení – ak stále nie je safe, zabime hráča
