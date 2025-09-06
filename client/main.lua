@@ -76,27 +76,41 @@ end
 local startWaterTime  = nil   -- kedy začal „unprotected“ pobyt vo vode
 local inCountdown     = false -- beží finálny odpočet
 local countdownThread = nil
+local cancelRequested = false -- požiadavka na zrušenie progressu
 
 -- bezpečné zrušenie ox_lib progressu (ak existuje API)
 local function cancelProgressSafe()
+    if inCountdown then
+        cancelRequested = true
+    end
     pcall(function()
         if lib and type(lib.cancelProgress) == 'function' then
-            lib.cancelProgress()
+            if not lib.progressActive or lib.progressActive() then
+                lib.cancelProgress()
+            end
         end
     end)
 end
+
 
 -- spustenie finálneho odpočtu (beží v samostatnom vlákne)
 local function startFinalCountdown(seconds)
     if inCountdown then return end
     inCountdown = true
+    cancelRequested = false
 
     notify(Config.Notify.OnWarn)  -- „Pozor! Začínaš sa topiť“
     if Config.Debug then
         print(('[anti_waterevade] FINAL COUNTDOWN START: %ds'):format(seconds or Config.FinalCountdownSeconds or 60))
     end
 
-    countdownThread = CreateThread(function()
+     countdownThread = CreateThread(function()
+        if cancelRequested then
+            cancelRequested = false
+            inCountdown = false
+            return
+        end
+
         local dur = (seconds or Config.FinalCountdownSeconds or 60) * 1000
         local progress
 
@@ -131,11 +145,12 @@ local function startFinalCountdown(seconds)
             SetEntityHealth(ped, 0)
             notify(Config.Notify.OnDeath)
             if Config.Debug then print('[anti_waterevade] FINAL: drowned') end
-        else
+       else
             if Config.Debug then print('[anti_waterevade] FINAL: cancelled (safe)') end
         end
 
         inCountdown = false
+        cancelRequested = false
     end)
 end
 
