@@ -13,7 +13,7 @@ shared_scripts {
 }
 
 server_scripts {
-'server/main.lua',
+'server/server.lua',
 }
 
 client_scripts {
@@ -21,6 +21,8 @@ client_scripts {
 }
 
 dependencies {
+'PolyZone',
 'ox_lib', 
 'qb-core'
 }
+
