@@ -1,4 +1,7 @@
+local PolyZone = exports['PolyZone']
 local QBCore = exports['qb-core']:GetCoreObject()
+
+local zoneActive = false
 
 -- ================== helpers ==================
 local function notify(entry)
@@ -145,16 +148,18 @@ local function startFinalCountdown(seconds)
     end
 
     countdownThread = CreateThread(function()
+        if not zoneActive then inCountdown = false; cancelRequested = false; return end
         local dur = (seconds or Config.FinalCountdownSeconds or 60) * 1000
 
         -- počkaj, kým nebeží iný progress (max ~1.5s)
         if lib and type(lib.progressActive) == 'function' then
             local untilTs = GetGameTimer() + 1500
-            while lib.progressActive() and GetGameTimer() < untilTs do
+        while zoneActive and lib.progressActive() and GetGameTimer() < untilTs do
                 if cancelRequested then inCountdown = false; cancelRequested = false; return end
                 Wait(50)
             end
-        end
+            if not zoneActive then inCountdown = false; cancelRequested = false; return end
+        end   
 
         local opts = {
             duration     = dur,
@@ -176,9 +181,9 @@ local function startFinalCountdown(seconds)
         end
 
         -- fallback – aj keby ox_lib progress neotvoril overlay
-        if not shown then
+         if not shown then
             local deadline = GetGameTimer() + dur
-            while GetGameTimer() < deadline and not cancelRequested do
+            while zoneActive and GetGameTimer() < deadline and not cancelRequested do
                 SetTextFont(4); SetTextScale(0.5,0.5); SetTextCentre(true); SetTextOutline()
                 SetTextColour(255,255,255,230)
                 BeginTextCommandDisplayText('STRING'); AddTextComponentSubstringPlayerName('Topíš sa…'); EndTextCommandDisplayText(0.5,0.48)
@@ -187,16 +192,17 @@ local function startFinalCountdown(seconds)
                 DrawRect(0.35 + 0.15*left, 0.52, 0.30*left, 0.012, 255,255,255,220)
                 Wait(0)
             end
+            if not zoneActive then inCountdown = false; cancelRequested = false; return end
         end
 
-        if cancelRequested then
+        if cancelRequested or not zoneActive then
             inCountdown = false; cancelRequested = false
             if Config.Debug then print('[anti_waterevade] FINAL: cancelled (manual)') end
             return
         end
 
         -- po skončení – ak stále nie je safe, zabime hráča
-        local ped = PlayerPedId()
+         local ped = PlayerPedId()
         if isInWaterUnprotected(ped) then
             SetEntityHealth(ped, 0)
             notify(Config.Notify.OnDeath)
@@ -210,41 +216,60 @@ local function startFinalCountdown(seconds)
     end)
 end
 
--- ================== hlavná slučka ==================
-CreateThread(function()
-    while true do
-        local ped = PlayerPedId()
-        local unprotected = isInWaterUnprotected(ped)
+-- ================== monitorovanie ==================
+local function startMonitoring()
+    CreateThread(function()
+        while zoneActive do
+            local ped = PlayerPedId()
+            local unprotected = isInWaterUnprotected(ped)
 
-        if not unprotected then
-            -- reset všetkého
-            if startWaterTime or inCountdown then
-                startWaterTime = nil
-                if inCountdown then
-                    cancelProgressSafe()
-                    inCountdown = false
+            if not unprotected then
+                -- reset všetkého
+                if startWaterTime or inCountdown then
+                    startWaterTime = nil
+                    if inCountdown then
+                        cancelProgressSafe()
+                        inCountdown = false
+                    end
+                    notify(Config.Notify.OnSafe)
+                    if Config.Debug then print('[anti_waterevade] SAFE: reset') end
                 end
-                notify(Config.Notify.OnSafe)
-                if Config.Debug then print('[anti_waterevade] SAFE: reset') end
-            end
-            Wait(800)
-        else
-            -- sme v nechránenej vode
-            if not startWaterTime then
-                startWaterTime = GetGameTimer()
-                if Config.Debug then print('[anti_waterevade] DANGER: started') end
-            end
-
-            -- po uplynutí varovného času spustiť finálny odpočet raz
-            if not inCountdown then
-                local elapsed = (GetGameTimer() - startWaterTime) / 1000.0
-                if elapsed >= (Config.WarnAfterSeconds or 600) then
-                    startFinalCountdown(Config.FinalCountdownSeconds or 60)
+                Wait(800)
+            else
+                -- sme v nechránenej vode
+                if not startWaterTime then
+                    startWaterTime = GetGameTimer()
+                    if Config.Debug then print('[anti_waterevade] DANGER: started') end
                 end
-            end
 
-            Wait(250)
+                -- po uplynutí varovného času spustiť finálny odpočet raz
+                if not inCountdown then
+                    local elapsed = (GetGameTimer() - startWaterTime) / 1000.0
+                    if elapsed >= (Config.WarnAfterSeconds or 600) then
+                        startFinalCountdown(Config.FinalCountdownSeconds or 60)
+                    end
+                end
+
+                Wait(250)
+            end
         end
+    end)
+end
+
+local test2Zone = PolyZone:Create({
+    -- TODO: replace placeholder coordinates with actual zone data
+    vector2(0.0, 0.0),
+    vector2(10.0, 0.0),
+    vector2(10.0, 10.0),
+    vector2(0.0, 10.0)
+}, {name = 'test2', debugPoly = false})
+
+test2Zone:onPlayerInOut(function(isInside)
+    if isInside and not zoneActive then
+        zoneActive = true
+        startMonitoring()
+    elseif not isInside and zoneActive then
+        zoneActive = false
     end
 end)
 
@@ -263,7 +288,7 @@ end, false)
 
 CreateThread(function()
     while true do
-        if dbg then
+        if zoneActive and dbg then
             local ped = PlayerPedId()
             local inWater = IsEntityInWater(ped)
             local swim = IsPedSwimming(ped) or IsPedSwimmingUnderWater(ped)
@@ -338,3 +363,4 @@ end, false)
 RegisterCommand('drown_force', function()
     startFinalCountdown(8) -- rýchly 8s test
 end, false)
+
