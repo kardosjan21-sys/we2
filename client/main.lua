@@ -16,10 +16,16 @@ local function notify(entry)
 end
 
 local function isEquippedScuba(ped)
-    -- primárny spôsob: statebag flag (napr. Entity(ped).state.scuba = true pri "use" itemu)
-    local ok, ent = pcall(function() return Entity(ped) end)
-    if ok and ent and ent.state and Config.Exemptions.EquippedFlagName then
-        if ent.state[Config.Exemptions.EquippedFlagName] then
+    -- primárny spôsob: statebag flag (napr. state["diving_gear"] = true pri "use" itemu)
+    local key = Config.Exemptions.EquippedFlagName
+    if key then
+        -- skús najprv statebag hráča
+        if LocalPlayer.state and LocalPlayer.state[key] then
+            return true
+        end
+        -- potom entita pedu
+        local ok, ent = pcall(function() return Entity(ped) end)
+        if ok and ent and ent.state and ent.state[key] then
             return true
         end
     end
@@ -30,6 +36,8 @@ local function isEquippedScuba(ped)
     end
     return false
 end
+
+
 
 local lastUnsafe, safeSince = false, nil
 
@@ -61,31 +69,47 @@ local function isInWaterUnprotected(ped)
         return false
     end
 
-    -- prepínač výstroje (equip/unequip)
-    RegisterNetEvent('anti_waterevade:toggleScuba', function()
-    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
-    local cur = LocalPlayer.state[key]
-    -- nastav s replikáciou
-    LocalPlayer.state:set(key, not cur, true)
-
-    lib.notify({
-        description = (not cur) and 'Nasadil si potápačskú výstroj.' or 'Zložil si potápačskú výstroj.',
-        type = (not cur) and 'success' or 'warning'
-    })
-    end)
-
--- poistka po joine/reset
-AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
-    LocalPlayer.state:set(Config.Exemptions.EquippedFlagName or 'divinggear', false, true)
-end)
-
+    if isEquippedScuba(ped) then
+        lastUnsafe = false
+        safeSince = GetGameTimer()
+        return false
+    end
 
     -- sme nechránene vo vode
     lastUnsafe = true; safeSince = nil
     return true
 end
 
+-- prepínač výstroje (equip/unequip)
+RegisterNetEvent('anti_waterevade:toggleScuba', function()
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    local cur = LocalPlayer.state[key]
+    local newVal = not cur
 
+    -- nastav s replikáciou na hráčovi aj na jeho pedovi
+    LocalPlayer.state:set(key, newVal, true)
+    local ped = PlayerPedId()
+    local ok, ent = pcall(function() return Entity(ped) end)
+    if ok and ent and ent.state then
+        ent.state:set(key, newVal, true)
+    end
+
+    lib.notify({
+        description = newVal and 'Nasadil si potápačskú výstroj.' or 'Zložil si potápačskú výstroj.',
+        type = newVal and 'success' or 'warning'
+    })
+end)
+
+-- poistka po joine/reset
+AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    LocalPlayer.state:set(key, false, true)
+    local ped = PlayerPedId()
+    local ok, ent = pcall(function() return Entity(ped) end)
+    if ok and ent and ent.state then
+        ent.state:set(key, false, true)
+    end
+end)
 -- ================== stav ==================
 local startWaterTime  = nil   -- kedy začal „unprotected“ pobyt vo vode
 local inCountdown     = false -- beží finálny odpočet
@@ -266,26 +290,35 @@ end)
 
 -- ================== pomocné test príkazy (voliteľné) ==================
 RegisterCommand('scuba_on', function()
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    LocalPlayer.state:set(key, true, true)
     local ped = PlayerPedId()
     local ok, ent = pcall(function() return Entity(ped) end)
-    if ok and ent and ent.state and Config.Exemptions.EquippedFlagName then
-        ent.state[Config.Exemptions.EquippedFlagName] = true
+    if ok and ent and ent.state then
+        ent.state:set(key, true, true)
     end
     lib.notify({ description='SCUBA equipped (test)', type='success' })
 end, false)
 
 RegisterCommand('scuba_off', function()
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    LocalPlayer.state:set(key, false, true)
     local ped = PlayerPedId()
     local ok, ent = pcall(function() return Entity(ped) end)
-    if ok and ent and ent.state and Config.Exemptions.EquippedFlagName then
-        ent.state[Config.Exemptions.EquippedFlagName] = false
+    if ok and ent and ent.state then
+        ent.state:set(key, false, true)
     end
     lib.notify({ description='SCUBA unequipped (test)', type='warning' })
 end, false)
 
 RegisterCommand('scuba_state', function()
-  print('divinggear flag =', tostring(LocalPlayer.state.divinggear))
-  lib.notify({ description = 'divinggear: '..tostring(LocalPlayer.state.divinggear), type = 'inform' })
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    local pVal = LocalPlayer.state[key]
+    local ped = PlayerPedId()
+    local ok, ent = pcall(function() return Entity(ped) end)
+    local eVal = ok and ent and ent.state and ent.state[key]
+    print('diving gear flag (player,ped) =', tostring(pVal), tostring(eVal))
+    lib.notify({ description = key..': '..tostring(pVal)..' (ped '..tostring(eVal)..')', type = 'inform' })
 end, false)
 
 -- sanity testy ox_lib
