@@ -12,6 +12,15 @@ shared_scripts {
   'config.lua'
 }
 
-client_scripts { 'client/main.lua' }
+server_scripts {
+'server/main.lua',
+}
 
-dependencies { 'ox_lib', 'qb-core' }
+client_scripts {
+'client/main.lua' 
+}
+
+dependencies {
+'ox_lib', 
+'qb-core'
+}
