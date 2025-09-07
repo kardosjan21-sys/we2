@@ -37,6 +37,17 @@ local function isEquippedScuba(ped)
     return false
 end
 
+-- helper to (de)activate scuba flag on player and ped
+local function setScubaEquipped(enabled)
+    local key = Config.Exemptions and Config.Exemptions.EquippedFlagName or 'divinggear'
+    LocalPlayer.state:set(key, enabled, true)
+    local ped = PlayerPedId()
+    local ok, ent = pcall(function() return Entity(ped) end)
+    if ok and ent and ent.state then
+        ent.state:set(key, enabled, true)
+    end
+end
+
 
 
 local lastUnsafe, safeSince = false, nil
@@ -83,16 +94,9 @@ end
 -- prepínač výstroje (equip/unequip)
 RegisterNetEvent('anti_waterevade:toggleScuba', function()
     local key = Config.Exemptions.EquippedFlagName or 'divinggear'
-    local cur = LocalPlayer.state[key]
-    local newVal = not cur
+    local newVal = not LocalPlayer.state[key]
 
-    -- nastav s replikáciou na hráčovi aj na jeho pedovi
-    LocalPlayer.state:set(key, newVal, true)
-    local ped = PlayerPedId()
-    local ok, ent = pcall(function() return Entity(ped) end)
-    if ok and ent and ent.state then
-        ent.state:set(key, newVal, true)
-    end
+    setScubaEquipped(newVal)
 
     lib.notify({
         description = newVal and 'Nasadil si potápačskú výstroj.' or 'Zložil si potápačskú výstroj.',
@@ -100,15 +104,13 @@ RegisterNetEvent('anti_waterevade:toggleScuba', function()
     })
 end)
 
--- poistka po joine/reset
-AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
-    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
-    LocalPlayer.state:set(key, false, true)
-    local ped = PlayerPedId()
-    local ok, ent = pcall(function() return Entity(ped) end)
-    if ok and ent and ent.state then
-        ent.state:set(key, false, true)
-    end
+RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
+    setScubaEquipped(false)
+end)
+
+RegisterNetEvent('qb-diving:client:UseGear', function()
+    local key = Config.Exemptions and Config.Exemptions.EquippedFlagName or 'divinggear'
+    setScubaEquipped(not LocalPlayer.state[key])
 end)
 -- ================== stav ==================
 local startWaterTime  = nil   -- kedy začal „unprotected“ pobyt vo vode
