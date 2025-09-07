@@ -61,10 +61,24 @@ local function isInWaterUnprotected(ped)
         return false
     end
 
-    -- výstroj (musí byť equipped, nie len v inventári)
-    if isEquippedScuba(ped) then
-        lastUnsafe = false; safeSince = GetGameTimer(); return false
-    end
+    -- prepínač výstroje (equip/unequip)
+    RegisterNetEvent('anti_waterevade:toggleScuba', function()
+    local key = Config.Exemptions.EquippedFlagName or 'divinggear'
+    local cur = LocalPlayer.state[key]
+    -- nastav s replikáciou
+    LocalPlayer.state:set(key, not cur, true)
+
+    lib.notify({
+        description = (not cur) and 'Nasadil si potápačskú výstroj.' or 'Zložil si potápačskú výstroj.',
+        type = (not cur) and 'success' or 'warning'
+    })
+    end)
+
+-- poistka po joine/reset
+AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
+    LocalPlayer.state:set(Config.Exemptions.EquippedFlagName or 'divinggear', false, true)
+end)
+
 
     -- sme nechránene vo vode
     lastUnsafe = true; safeSince = nil
@@ -90,7 +104,7 @@ local function cancelProgressSafe()
             end
         end
     end)
-end
+end  
 
 
 -- spustenie finálneho odpočtu (beží v samostatnom vlákne)
@@ -99,44 +113,60 @@ local function startFinalCountdown(seconds)
     inCountdown = true
     cancelRequested = false
 
-    notify(Config.Notify.OnWarn)  -- „Pozor! Začínaš sa topiť“
+    notify(Config.Notify.OnWarn)
     if Config.Debug then
         print(('[anti_waterevade] FINAL COUNTDOWN START: %ds'):format(seconds or Config.FinalCountdownSeconds or 60))
     end
 
-     countdownThread = CreateThread(function()
-        if cancelRequested then
-            cancelRequested = false
-            inCountdown = false
-            return
-        end
-
+    countdownThread = CreateThread(function()
         local dur = (seconds or Config.FinalCountdownSeconds or 60) * 1000
-        local progress
 
-        if lib then
-            if Config.Progress.useCircle and type(lib.progressCircle) == 'function' then
-                progress = lib.progressCircle
-            elseif type(lib.progressBar) == 'function' then
-                progress = lib.progressBar
+        -- počkaj, kým nebeží iný progress (max ~1.5s)
+        if lib and type(lib.progressActive) == 'function' then
+            local untilTs = GetGameTimer() + 1500
+            while lib.progressActive() and GetGameTimer() < untilTs do
+                if cancelRequested then inCountdown = false; cancelRequested = false; return end
+                Wait(50)
             end
         end
 
-        local deadline = GetGameTimer() + dur
-        if progress then
-            progress({
-                duration     = dur,
-                label        = Config.Progress.label or 'Topíš sa…',
-                position     = Config.Progress.position or 'bottom',
-                useWhileDead = false,
-                canCancel    = Config.Progress.canCancel or false,
-                disable      = Config.Progress.disable or {},
-            })
-            local remaining = deadline - GetGameTimer()
-            if remaining > 0 then Wait(remaining) end
-        else
-            -- fallback wait if ox_lib progress is unavailable
-            Wait(dur)
+        local opts = {
+            duration     = dur,
+            label        = Config.Progress.label or 'Topíš sa…',
+            position     = Config.Progress.position or 'middle',
+            useWhileDead = false,
+            canCancel    = Config.Progress.canCancel or false,
+            disable      = Config.Progress.disable or {},
+        }
+
+        local shown = false
+        if lib then
+            if Config.Progress.useCircle and type(lib.progressCircle) == 'function' then
+                local ok = lib.progressCircle(opts); shown = (ok ~= nil)
+            end
+            if not shown and type(lib.progressBar) == 'function' then
+                local ok = lib.progressBar(opts); shown = (ok ~= nil)
+            end
+        end
+
+        -- fallback – aj keby ox_lib progress neotvoril overlay
+        if not shown then
+            local deadline = GetGameTimer() + dur
+            while GetGameTimer() < deadline and not cancelRequested do
+                SetTextFont(4); SetTextScale(0.5,0.5); SetTextCentre(true); SetTextOutline()
+                SetTextColour(255,255,255,230)
+                BeginTextCommandDisplayText('STRING'); AddTextComponentSubstringPlayerName('Topíš sa…'); EndTextCommandDisplayText(0.5,0.48)
+                local left = (deadline - GetGameTimer()) / dur
+                DrawRect(0.5, 0.52, 0.30, 0.014, 0,0,0,160)
+                DrawRect(0.35 + 0.15*left, 0.52, 0.30*left, 0.012, 255,255,255,220)
+                Wait(0)
+            end
+        end
+
+        if cancelRequested then
+            inCountdown = false; cancelRequested = false
+            if Config.Debug then print('[anti_waterevade] FINAL: cancelled (manual)') end
+            return
         end
 
         -- po skončení – ak stále nie je safe, zabime hráča
@@ -145,7 +175,7 @@ local function startFinalCountdown(seconds)
             SetEntityHealth(ped, 0)
             notify(Config.Notify.OnDeath)
             if Config.Debug then print('[anti_waterevade] FINAL: drowned') end
-       else
+        else
             if Config.Debug then print('[anti_waterevade] FINAL: cancelled (safe)') end
         end
 
@@ -251,6 +281,11 @@ RegisterCommand('scuba_off', function()
         ent.state[Config.Exemptions.EquippedFlagName] = false
     end
     lib.notify({ description='SCUBA unequipped (test)', type='warning' })
+end, false)
+
+RegisterCommand('scuba_state', function()
+  print('divinggear flag =', tostring(LocalPlayer.state.divinggear))
+  lib.notify({ description = 'divinggear: '..tostring(LocalPlayer.state.divinggear), type = 'inform' })
 end, false)
 
 -- sanity testy ox_lib
