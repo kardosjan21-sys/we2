@@ -257,12 +257,20 @@ local function startMonitoring()
 end
 
 local test2Zone = PolyZone:Create({
-    -- TODO: replace placeholder coordinates with actual zone data
-    vector2(0.0, 0.0),
-    vector2(10.0, 0.0),
-    vector2(10.0, 10.0),
-    vector2(0.0, 10.0)
-}, {name = 'test2', debugPoly = false})
+  vector2(-1574.0570068359, -1227.0938720703),
+  vector2(-1604.2145996094, -1154.3175048828),
+  vector2(-1640.6536865234, -1130.19921875),
+  vector2(-1974.447265625, -1469.6121826172),
+  vector2(-2136.0412597656, -1590.4193115234),
+  vector2(-1681.8768310547, -2430.1962890625),
+  vector2(-1363.0418701172, -2078.8818359375),
+  vector2(-1235.6281738281, -1969.1098632812),
+  vector2(-1294.4542236328, -1788.7575683594)
+}, {
+  name = "test2",
+  minZ = 1.3104894161224,
+  maxZ = 39.920989990234
+})
 
 test2Zone:onPlayerInOut(function(isInside)
     if isInside and not zoneActive then
@@ -363,4 +371,5 @@ end, false)
 RegisterCommand('drown_force', function()
     startFinalCountdown(8) -- rýchly 8s test
 end, false)
+
 
